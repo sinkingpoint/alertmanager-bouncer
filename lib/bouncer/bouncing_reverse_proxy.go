@@ -1,26 +1,125 @@
 package bouncer
 
 import (
+	"bytes"
+	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
+	"strings"
 )
+
+// Target Represents a potential target for an HTTP request
+// with both a Method (Which represents the HTTP method), and a URI Regex
+// which matches the URI of the request
+type Target struct {
+	Method   string
+	URIRegex *regexp.Regexp
+}
+
+// Matches returns whether the given the given Target matches the given
+// request, i.e. the method matches, and the URI matches the regex
+func (t Target) Matches(req *http.Request) bool {
+	methodMatches := strings.EqualFold(req.Method, t.Method)
+	uriMatches := t.URIRegex.MatchString(req.URL.RequestURI())
+	log.Printf("%t %t %s", methodMatches, uriMatches, req.URL.RequestURI())
+	return methodMatches && uriMatches
+}
+
+// HTTPError represents an error, coupled with an HTTP Status Code
+type HTTPError struct {
+	Status int
+	Err    error
+}
+
+// ToResponse converts the given HTTPError into an HTTP Response,
+// which can be sent back to a client
+func (h *HTTPError) ToResponse() *http.Response {
+	return &http.Response{
+		StatusCode: h.Status,
+		Body:       ioutil.NopCloser(bytes.NewBufferString(h.Err.Error())),
+	}
+}
+
+// Decider is a function which takes an HTTP request and optionally returns
+// an HTTPError, if the given request should be rejected
+type Decider func(req *http.Request) *HTTPError
+
+// Bouncer is a coupling of a Target, and a number of deciders. It can optionally
+// "Bounce" a request, i.e. reject it based on a series of Deciders
+type Bouncer struct {
+	Target   Target
+	Deciders []Decider
+	DryRun   bool
+}
+
+// Bounce takes an HTTPRequest and optionally returns an HTTPError
+// if the request should be "Bounced", i.e. rejected.
+func (b Bouncer) Bounce(req *http.Request) *HTTPError {
+	if !b.Target.Matches(req) {
+		return nil
+	}
+
+	// We want multiple deciders to be able to read the body, so
+	// we have to read it here, and then reload it into a buffer for every decider
+	var rawBody []byte
+	var err error
+	if req.Body == nil || req.Body == http.NoBody {
+		rawBody = []byte{}
+	} else {
+		rawBody, err = ioutil.ReadAll(req.Body)
+		if err != nil {
+			return &HTTPError{
+				Status: 500,
+				Err:    fmt.Errorf("Failed to read body from request"),
+			}
+		}
+	}
+
+	for _, decider := range b.Deciders {
+		req.Body = ioutil.NopCloser(bytes.NewBuffer(rawBody))
+		err := decider(req)
+		if err != nil {
+			if b.DryRun {
+				log.Printf("Would have rejected %s %s: %s\n", req.Method, req.URL.RequestURI(), err.Err.Error())
+			} else {
+				log.Printf("Rejected %s %s: %s\n", req.Method, req.URL.RequestURI(), err.Err.Error())
+				return err
+			}
+		}
+	}
+
+	return nil
+}
 
 type bouncingTransport struct {
 	backingTransport http.RoundTripper
+	bouncers         []Bouncer
 }
 
 func (b bouncingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	for _, bouncer := range b.bouncers {
+		err := bouncer.Bounce(request)
+		if err != nil {
+			return err.ToResponse(), nil
+		}
+	}
 	return b.backingTransport.RoundTrip(request)
 }
 
-func NewBouncingReverseProxy(backend *url.URL, backingTransport http.RoundTripper) *httputil.ReverseProxy {
+// NewBouncingReverseProxy generates a ReverseProxy instance which runs the given
+// set of bouncers on every request that passes through it
+func NewBouncingReverseProxy(backend *url.URL, bouncers []Bouncer, backingTransport http.RoundTripper) *httputil.ReverseProxy {
 	if backingTransport == nil {
 		backingTransport = http.DefaultTransport
 	}
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	proxy.Transport = bouncingTransport{
 		backingTransport: backingTransport,
+		bouncers:         bouncers,
 	}
 
 	return proxy
