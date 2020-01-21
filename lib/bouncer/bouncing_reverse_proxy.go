@@ -25,7 +25,6 @@ type Target struct {
 func (t Target) Matches(req *http.Request) bool {
 	methodMatches := strings.EqualFold(req.Method, t.Method)
 	uriMatches := t.URIRegex.MatchString(req.URL.RequestURI())
-	log.Printf("%t %t %s", methodMatches, uriMatches, req.URL.RequestURI())
 	return methodMatches && uriMatches
 }
 
@@ -70,6 +69,7 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 	if req.Body == nil || req.Body == http.NoBody {
 		rawBody = []byte{}
 	} else {
+		defer req.Body.Close()
 		rawBody, err = ioutil.ReadAll(req.Body)
 		if err != nil {
 			return &HTTPError{
@@ -81,6 +81,7 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 
 	for _, decider := range b.Deciders {
 		req.Body = ioutil.NopCloser(bytes.NewBuffer(rawBody))
+		defer req.Body.Close()
 		err := decider(req)
 		if err != nil {
 			if b.DryRun {
@@ -92,6 +93,7 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 		}
 	}
 
+	req.Body = ioutil.NopCloser(bytes.NewBuffer(rawBody))
 	return nil
 }
 
