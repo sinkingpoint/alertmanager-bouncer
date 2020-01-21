@@ -1,0 +1,19 @@
+version: '3'
+services:
+  bouncer:
+    build: .
+    ports:
+      - "8080:8080"
+    command: --backend.addr http://alertmanager-1:9090 --listen.addr :8080 --config.bouncersfile /test.yaml
+    volumes:
+      - ./test/test.yaml:/test.yaml
+  alertmanager-1:
+    image: prom/alertmanager:v0.20.0
+    command: "--web.listen-address alertmanager-1:9090 --config.file /etc/alertmanager/alertmanager.yml"
+    ports:
+      - 9090:9090
+  alertmanager-2:
+    image: prom/alertmanager:v0.20.0
+    command: "--web.listen-address alertmanager-2:9091 --config.file /etc/alertmanager/alertmanager.yml"
+    ports:
+      - 9091:9091

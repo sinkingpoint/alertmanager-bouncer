@@ -1,0 +1,14 @@
+bouncers:
+  - method: POST
+    uriRegex: /api/v[12]/silences
+    deciders:
+      - name: AllSilencesHaveAuthor
+        config:
+          domain: "@cloudflare.com"
+    dryrun: false
+  - method: POST
+    uriRegex: /api/v[12]/(:?silences|alerts)
+    deciders:
+      - name: Mirror
+        config:
+          destination: "http://alertmanager-2:9091"
