@@ -10,6 +10,25 @@ import (
 	"time"
 )
 
+type deciderTemplate struct {
+	requiredConfigVars []string
+	templateFunc       func(map[string]string) Decider
+}
+
+var deciderTemplates map[string]deciderTemplate
+
+// InitDeciderTemplates sets up the bouncerTemplates map
+// allowing finding a bouncerTemplate by a given name. Used to
+// deserialize a list of bouncers
+func InitDeciderTemplates() {
+	deciderTemplates = map[string]deciderTemplate{
+		"AllSilencesHaveAuthor": {
+			requiredConfigVars: []string{"domain"},
+			templateFunc:       AllSilencesHaveAuthorDecider,
+		},
+	}
+}
+
 type matcher struct {
 	IsRegex bool   `json:"isRegex"`
 	Name    string `json:"name"`
@@ -75,8 +94,9 @@ func parseAlertmanagerSilence(body io.ReadCloser) (AlertmanagerSilence, error) {
 
 // AllSilencesHaveAuthorDecider returns a decider that rejects requests that
 // do not have authors which end in the given domain string
-func AllSilencesHaveAuthorDecider(domain string) Decider {
+func AllSilencesHaveAuthorDecider(config map[string]string) Decider {
 	return func(req *http.Request) *HTTPError {
+		domain := config["domain"]
 		silence, err := parseAlertmanagerSilence(req.Body)
 		if err != nil {
 			return &HTTPError{

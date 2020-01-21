@@ -29,19 +29,19 @@ func TestAllSilencesHaveAuthorDecider(t *testing.T) {
 	}{
 		{
 			name:            "Bad Domain Fails",
-			decider:         bouncer.AllSilencesHaveAuthorDecider("@cloudflare.com"),
+			decider:         bouncer.AllSilencesHaveAuthorDecider(map[string]string{"domain": "@cloudflare.com"}),
 			input:           `{"comment":"test","createdBy":"colin@quirl.co.nz", "startsAt":"2020-01-21T00:23:55.242Z", "endsAt":"2020-01-21T01:23:55.242Z"}`,
 			expectedSuccess: false,
 		},
 		{
 			name:            "No Domain Doesn't Die",
-			decider:         bouncer.AllSilencesHaveAuthorDecider("@cloudflare.com"),
+			decider:         bouncer.AllSilencesHaveAuthorDecider(map[string]string{"domain": "@cloudflare.com"}),
 			input:           `{"comment":"test", "startsAt":"2020-01-21T00:23:55.242Z", "endsAt":"2020-01-21T01:23:55.242Z"}`,
 			expectedSuccess: false,
 		},
 		{
 			name:            "Correct Domain Passes",
-			decider:         bouncer.AllSilencesHaveAuthorDecider("@cloudflare.com"),
+			decider:         bouncer.AllSilencesHaveAuthorDecider(map[string]string{"domain": "@cloudflare.com"}),
 			input:           `{"comment":"test", "createdBy": "colin@cloudflare.com", "startsAt":"2020-01-21T00:23:55.242Z", "endsAt":"2020-01-21T01:23:55.242Z"}`,
 			expectedSuccess: true,
 		},
