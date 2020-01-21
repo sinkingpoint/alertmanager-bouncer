@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
@@ -29,6 +31,7 @@ type config struct {
 
 func loadBouncersFromFile(conf config) ([]bouncer.Bouncer, error) {
 	jsonFile, err := os.Open(conf.bouncersConfigFile)
+	defer jsonFile.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +74,21 @@ func main() {
 		Handler:      proxy,
 		Addr:         config.listenURL.String(),
 	}
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+	go func() {
+		for {
+			<-sigChan
+			log.Printf("Received a SIGHUP. Reloading Bouncers from %s", config.bouncersConfigFile)
+			bouncers, err := loadBouncersFromFile(config)
+			if err != nil {
+				log.Printf("Failed to parse bouncers from %s: %s. Aboring Reload.", config.bouncersConfigFile, err.Error())
+			}
+
+			bouncer.SetBouncers(bouncers, proxy)
+		}
+	}()
 
 	if config.tlsCertFile != "" && config.tlsKeyFile != "" {
 		err = server.ListenAndServeTLS(config.tlsCertFile, config.tlsKeyFile)

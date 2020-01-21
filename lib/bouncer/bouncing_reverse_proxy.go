@@ -165,6 +165,23 @@ type bouncingTransport struct {
 	bouncers         []Bouncer
 }
 
+// SetBouncers sets the set of bouncers on the given proxy
+// This allows us to reload a set of bouncers on a running proxy, without
+// restarting the process
+func SetBouncers(bouncers []Bouncer, proxy *httputil.ReverseProxy) error {
+	transport, ok := proxy.Transport.(bouncingTransport)
+	if !ok {
+		return fmt.Errorf("Given proxy is not a BouncingReverseProxy")
+	}
+
+	proxy.Transport = bouncingTransport{
+		backingTransport: transport.backingTransport,
+		bouncers:         bouncers,
+	}
+
+	return nil
+}
+
 func (b bouncingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	for _, bouncer := range b.bouncers {
 		err := bouncer.Bounce(request)
