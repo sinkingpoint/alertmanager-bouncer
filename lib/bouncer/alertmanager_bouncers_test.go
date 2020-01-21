@@ -89,3 +89,37 @@ func TestMirrorDecider(t *testing.T) {
 		t.Errorf("Expected request to be mirrored to the backend, but it wasn't")
 	}
 }
+
+func TestSilencesDontExpireOnWeekendsDecider(t *testing.T) {
+	testCases := []struct {
+		name            string
+		decider         bouncer.Decider
+		input           string
+		expectedSuccess bool
+	}{
+		{
+			name:            "Test Expires on Weekend Fails",
+			decider:         bouncer.SilencesDontExpireOnWeekendsDecider(nil),
+			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-19T00:23:55.242Z"}`,
+			expectedSuccess: false,
+		}, {
+			name:            "Test Expires on Weekday Works",
+			decider:         bouncer.SilencesDontExpireOnWeekendsDecider(nil),
+			input:           `{"startsAt":"2020-01-20T00:23:55.242Z", "endsAt": "2020-01-20T00:23:55.242Z"}`,
+			expectedSuccess: true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		response := testCase.decider(mustBuildRequest(testCase.input, t))
+		if (response == nil) != testCase.expectedSuccess {
+			var errorText string
+			if response != nil {
+				errorText = response.Err.Error()
+			} else {
+				errorText = ""
+			}
+			t.Errorf("Test %s failed. Expected %t got %t. Debug: %s", testCase.name, testCase.expectedSuccess, !testCase.expectedSuccess, errorText)
+		}
+	}
+}

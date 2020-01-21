@@ -31,6 +31,10 @@ func InitDeciderTemplates() {
 			requiredConfigVars: []string{"destination"},
 			templateFunc:       MirrorDecider,
 		},
+		"SilencesDontExpireOnWeekends": {
+			requiredConfigVars: []string{},
+			templateFunc:       SilencesDontExpireOnWeekendsDecider,
+		},
 	}
 }
 
@@ -150,6 +154,30 @@ func MirrorDecider(config map[string]string) Decider {
 		log.Printf("Mirroring request to %s\n", destination)
 
 		http.DefaultClient.Do(request)
+		return nil
+	}
+}
+
+// SilencesDontExpireOnWeekendsDecider returns a Decider which rejects silences
+// that expire on weekends, so that we don't spring any surprises on someone oncall over the weekend
+func SilencesDontExpireOnWeekendsDecider(config map[string]string) Decider {
+	return func(req *http.Request) *HTTPError {
+		silence, err := parseAlertmanagerSilence(req.Body)
+		if err != nil {
+			return &HTTPError{
+				Status: 400,
+				Err:    err,
+			}
+		}
+
+		weekday := silence.EndsAt.Weekday()
+		if weekday == time.Saturday || weekday == time.Sunday {
+			return &HTTPError{
+				Status: 400,
+				Err:    fmt.Errorf("By policy, silences can't expire on weekends. Be nice to people oncall over the weekend! "),
+			}
+		}
+
 		return nil
 	}
 }
