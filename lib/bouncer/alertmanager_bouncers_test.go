@@ -123,3 +123,56 @@ func TestSilencesDontExpireOnWeekendsDecider(t *testing.T) {
 		}
 	}
 }
+
+func TestLongSilencesHaveTicketDecider(t *testing.T) {
+	testCases := []struct {
+		name            string
+		decider         bouncer.Decider
+		input           string
+		expectedSuccess bool
+	}{
+		{
+			name:            "Test Short Silences Work",
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h"}),
+			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-19T00:23:55.242Z"}`,
+			expectedSuccess: true,
+		},
+		{
+			name:            "Test Long Silences Without ticket get rejected",
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h"}),
+			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z",}`,
+			expectedSuccess: false,
+		},
+		{
+			name:            "Test Long Silences With Ticket Work",
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h"}),
+			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z", "comment": "TICKET-1"}`,
+			expectedSuccess: true,
+		},
+		{
+			name:            "Test Long Silences With Custom Ticket Work",
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h", "ticket_regex": "CATS"}),
+			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z", "comment": "CATS"}`,
+			expectedSuccess: true,
+		},
+		{
+			name:            "Test Long Silences With Custom Ticket Work",
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h", "ticket_regex": "CATS1"}),
+			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z", "comment": "CATS"}`,
+			expectedSuccess: false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		response := testCase.decider(mustBuildRequest(testCase.input, t))
+		if (response == nil) != testCase.expectedSuccess {
+			var errorText string
+			if response != nil {
+				errorText = response.Err.Error()
+			} else {
+				errorText = ""
+			}
+			t.Errorf("Test %s failed. Expected %t got %t. Debug: %s", testCase.name, testCase.expectedSuccess, !testCase.expectedSuccess, errorText)
+		}
+	}
+}

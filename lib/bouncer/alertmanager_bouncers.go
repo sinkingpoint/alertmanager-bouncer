@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -34,6 +35,10 @@ func InitDeciderTemplates() {
 		"SilencesDontExpireOnWeekends": {
 			requiredConfigVars: []string{},
 			templateFunc:       SilencesDontExpireOnWeekendsDecider,
+		},
+		"LongSilencesHaveTicket": {
+			requiredConfigVars: []string{"max_length"},
+			templateFunc:       LongSilencesHaveTicketDecider,
 		},
 	}
 }
@@ -175,6 +180,52 @@ func SilencesDontExpireOnWeekendsDecider(config map[string]string) Decider {
 			return &HTTPError{
 				Status: 400,
 				Err:    fmt.Errorf("By policy, silences can't expire on weekends. Be nice to people oncall over the weekend! "),
+			}
+		}
+
+		return nil
+	}
+}
+
+// LongSilencesHaveTicketDecider returns a Decider which rejects silences longer than
+// the given duration, which don't have a comment matching the "ticket_regex" (defaults to a JIRA ticket format)
+// This allows us to not have long running throwaway silences without a ticket to track ongoing work
+func LongSilencesHaveTicketDecider(config map[string]string) Decider {
+	maxLengthWithoutTicket, err := time.ParseDuration(config["max_length"])
+	if err != nil {
+		log.Printf("Failed to parse LongSilencesHaveTicket duration: %s", err)
+		return nil
+	}
+
+	var ticketRegexStr string
+	if regex, ok := config["ticket_regex"]; ok {
+		ticketRegexStr = regex
+	} else {
+		ticketRegexStr = "[A-Z]+-[0-9]+"
+	}
+
+	ticketRegex, err := regexp.Compile(ticketRegexStr)
+	if err != nil {
+		log.Printf("Failed to parse LongSilencesHaveTicket ticket regex: %s", err)
+		return nil
+	}
+
+	return func(req *http.Request) *HTTPError {
+		silence, err := parseAlertmanagerSilence(req.Body)
+		if err != nil {
+			return &HTTPError{
+				Status: 400,
+				Err:    err,
+			}
+		}
+
+		tooLong := silence.EndsAt.Sub(silence.StartsAt) > maxLengthWithoutTicket
+		hasTicket := ticketRegex.MatchString(silence.Comment)
+
+		if tooLong && !hasTicket {
+			return &HTTPError{
+				Status: 400,
+				Err:    fmt.Errorf("Silences longer than %s must have tickets attached to them to track ongoing work", maxLengthWithoutTicket),
 			}
 		}
 
