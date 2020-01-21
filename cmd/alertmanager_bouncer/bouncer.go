@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
@@ -40,7 +41,17 @@ func main() {
 	app.Flag("dryrun", "If set to true, just log the rejections rather than outright rejecting things").Default("false").BoolVar(&config.dryRun)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
-	proxy := bouncer.NewBouncingReverseProxy(config.backendURL, nil)
+	proxy := bouncer.NewBouncingReverseProxy(config.backendURL, []bouncer.Bouncer{
+		bouncer.Bouncer{
+			Target: bouncer.Target{
+				Method:   "POST",
+				URIRegex: regexp.MustCompile("/api/v[12]/silences"),
+			},
+			Deciders: []bouncer.Decider{
+				bouncer.AllSilencesHaveAuthorDecider("quirl.co.nz"),
+			},
+		},
+	}, nil)
 	server := http.Server{
 		ReadTimeout:  config.serverReadTimeout,
 		WriteTimeout: config.serverWriteTimeout,
