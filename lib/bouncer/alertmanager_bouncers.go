@@ -37,7 +37,7 @@ func InitDeciderTemplates() {
 			templateFunc:       SilencesDontExpireOnWeekendsDecider,
 		},
 		"LongSilencesHaveTicket": {
-			requiredConfigVars: []string{"max_length"},
+			requiredConfigVars: []string{"maxLength"},
 			templateFunc:       LongSilencesHaveTicketDecider,
 		},
 	}
@@ -191,14 +191,14 @@ func SilencesDontExpireOnWeekendsDecider(config map[string]string) Decider {
 // the given duration, which don't have a comment matching the "ticket_regex" (defaults to a JIRA ticket format)
 // This allows us to not have long running throwaway silences without a ticket to track ongoing work
 func LongSilencesHaveTicketDecider(config map[string]string) Decider {
-	maxLengthWithoutTicket, err := time.ParseDuration(config["max_length"])
+	maxLengthWithoutTicket, err := time.ParseDuration(config["maxLength"])
 	if err != nil {
 		log.Printf("Failed to parse LongSilencesHaveTicket duration: %s", err)
 		return nil
 	}
 
 	var ticketRegexStr string
-	if regex, ok := config["ticket_regex"]; ok {
+	if regex, ok := config["ticketRegex"]; ok {
 		ticketRegexStr = regex
 	} else {
 		ticketRegexStr = "[A-Z]+-[0-9]+"

@@ -133,31 +133,31 @@ func TestLongSilencesHaveTicketDecider(t *testing.T) {
 	}{
 		{
 			name:            "Test Short Silences Work",
-			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h"}),
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"maxLength": "8h"}),
 			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-19T00:23:55.242Z"}`,
 			expectedSuccess: true,
 		},
 		{
 			name:            "Test Long Silences Without ticket get rejected",
-			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h"}),
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"maxLength": "8h"}),
 			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z",}`,
 			expectedSuccess: false,
 		},
 		{
 			name:            "Test Long Silences With Ticket Work",
-			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h"}),
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"maxLength": "8h"}),
 			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z", "comment": "TICKET-1"}`,
 			expectedSuccess: true,
 		},
 		{
 			name:            "Test Long Silences With Custom Ticket Work",
-			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h", "ticket_regex": "CATS"}),
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"maxLength": "8h", "ticketRegex": "CATS"}),
 			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z", "comment": "CATS"}`,
 			expectedSuccess: true,
 		},
 		{
 			name:            "Test Long Silences With Custom Ticket Work",
-			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"max_length": "8h", "ticket_regex": "CATS1"}),
+			decider:         bouncer.LongSilencesHaveTicketDecider(map[string]string{"maxLength": "8h", "ticketRegex": "CATS1"}),
 			input:           `{"startsAt":"2020-01-19T00:23:55.242Z", "endsAt":"2020-01-20T00:23:55.242Z", "comment": "CATS"}`,
 			expectedSuccess: false,
 		},
