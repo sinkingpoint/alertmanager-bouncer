@@ -10,7 +10,70 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v2"
 )
+
+type deciderSerialized struct {
+	Name   string            `yaml:"name"`
+	Config map[string]string `yaml:"config"`
+}
+
+type bouncerSerialized struct {
+	Method   string              `yaml:"method"`
+	URIRegex string              `yaml:"uriRegex"`
+	Deciders []deciderSerialized `yaml:"deciders"`
+	DryRun   bool                `yaml:"dryrun"`
+}
+
+// ParseBouncers loads a slice of Bouncers from a given byte array
+// which should represent a YAML encoded text stream of serialized bouncers.
+func ParseBouncers(bytes []byte) ([]Bouncer, error) {
+	InitDeciderTemplates()
+	var serializedBouncers struct {
+		Bouncers []bouncerSerialized `yaml:"bouncers"`
+	}
+	err := yaml.Unmarshal(bytes, &serializedBouncers)
+	if err != nil {
+		return nil, err
+	}
+
+	bouncers := make([]Bouncer, len(serializedBouncers.Bouncers))
+	for bouncerIndex, serializedBouncer := range serializedBouncers.Bouncers {
+		uriRegex, err := regexp.Compile(serializedBouncer.URIRegex)
+		if err != nil {
+			return nil, err
+		}
+
+		target := Target{
+			Method:   serializedBouncer.Method,
+			URIRegex: uriRegex,
+		}
+
+		deciders := make([]Decider, len(serializedBouncer.Deciders))
+		for deciderIndex, serializedDecider := range serializedBouncer.Deciders {
+			if _, exists := deciderTemplates[serializedDecider.Name]; !exists {
+				return nil, fmt.Errorf("No decider template named %s found", serializedDecider.Name)
+			}
+
+			for _, expected := range deciderTemplates[serializedDecider.Name].requiredConfigVars {
+				if _, exists := serializedDecider.Config[expected]; !exists {
+					return nil, fmt.Errorf("Expected config variable %s not found for %s", expected, serializedDecider.Name)
+				}
+			}
+
+			deciders[deciderIndex] = deciderTemplates[serializedDecider.Name].templateFunc(serializedDecider.Config)
+		}
+
+		bouncers[bouncerIndex] = Bouncer{
+			Target:   target,
+			Deciders: deciders,
+			DryRun:   serializedBouncer.DryRun,
+		}
+	}
+
+	return bouncers, nil
+}
 
 // Target Represents a potential target for an HTTP request
 // with both a Method (Which represents the HTTP method), and a URI Regex

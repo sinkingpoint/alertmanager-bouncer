@@ -26,6 +26,64 @@ func mustMakeRequest(t *testing.T, method string, urlString string, body string)
 	}
 }
 
+func TestParseBouncers(t *testing.T) {
+	testCases := []struct {
+		serialized          string
+		expectedNumBouncers int
+		expectedNumDeciders []int
+		expectedError       bool
+	}{
+		{
+			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: []}]}`,
+			expectedNumBouncers: 1,
+			expectedNumDeciders: []int{0},
+			expectedError:       false,
+		},
+		{
+			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAuthor", "config":{}}]}]}`,
+			expectedNumBouncers: 1,
+			expectedNumDeciders: []int{1},
+			expectedError:       true,
+		},
+		{
+			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAuthor", "config":{"domain":"quirl.co.nz"}}]}]}`,
+			expectedNumBouncers: 1,
+			expectedNumDeciders: []int{1},
+			expectedError:       false,
+		},
+		{
+			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAutho", "config":{"domain":"quirl.co.nz"}}]}]}`,
+			expectedNumBouncers: 1,
+			expectedNumDeciders: []int{1},
+			expectedError:       true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		bouncers, err := bouncer.ParseBouncers([]byte(testCase.serialized))
+		if err != nil {
+			if !testCase.expectedError {
+				t.Errorf("Got an error parsing bouncers, but didn't expect one: %s", err.Error())
+			}
+			continue
+		} else if err == nil && testCase.expectedError {
+			t.Errorf("Expected an error, but didn't get one")
+			continue
+		}
+
+		if len(bouncers) != testCase.expectedNumBouncers {
+			t.Errorf("Expected to load %d bouncers, but loaded %d", testCase.expectedNumBouncers, len(bouncers))
+			continue
+		}
+
+		for i, bouncer := range bouncers {
+			if len(bouncer.Deciders) != testCase.expectedNumDeciders[i] {
+				t.Errorf("Expected bouncer %d to load %d deciders, but loaded %d", i, testCase.expectedNumDeciders, len(bouncer.Deciders))
+			}
+		}
+	}
+}
+
 func TestTargetMatches(t *testing.T) {
 	testCases := []struct {
 		name           string
