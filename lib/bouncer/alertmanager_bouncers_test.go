@@ -1,17 +1,19 @@
 package bouncer_test
 
-import "testing"
+import (
+	"bytes"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 
-import "github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
-
-import "net/http"
-
-import "io/ioutil"
-
-import "bytes"
+	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
+)
 
 func mustBuildRequest(input string, t *testing.T) *http.Request {
 	req, err := http.NewRequest("GET", "localhost", ioutil.NopCloser(bytes.NewBufferString(input)))
+	req.Header.Add("X-Test", "Cats")
 	if err != nil {
 		t.Fatalf("%s", err.Error())
 	}
@@ -58,5 +60,32 @@ func TestAllSilencesHaveAuthorDecider(t *testing.T) {
 			}
 			t.Errorf("Test %s failed. Expected %t got %t. Debug: %s", testCase.name, testCase.expectedSuccess, !testCase.expectedSuccess, errorText)
 		}
+	}
+}
+
+func TestMirrorDecider(t *testing.T) {
+	// Setup a backend server to proxy requests to
+	recChan := make(chan int, 1)
+	const backendResponse = "I am the backend"
+	const backendStatus = 404
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(backendStatus)
+		w.Write([]byte(backendResponse))
+		if r.Header.Get("X-Test") == "Cats" {
+			recChan <- 1
+		}
+	}))
+	defer backend.Close()
+
+	decider := bouncer.MirrorDecider(map[string]string{"destination": backend.URL})
+	err := decider(mustBuildRequest("", t))
+	if err != nil {
+		t.Fatalf("Got error mirroring reqest: %s", err.Err.Error())
+	}
+	// Here we assume that 500ms is enough for the request to flow through the kernel networking stack
+	// This might be flaky on slow hardware I guess
+	time.Sleep(time.Duration(500) * time.Millisecond)
+	if len(recChan) == 0 {
+		t.Errorf("Expected request to be mirrored to the backend, but it wasn't")
 	}
 }

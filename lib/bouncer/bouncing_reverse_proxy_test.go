@@ -57,6 +57,12 @@ func TestParseBouncers(t *testing.T) {
 			expectedNumDeciders: []int{1},
 			expectedError:       true,
 		},
+		{
+			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAuthor", "config":{}}]}]}`,
+			expectedNumBouncers: 1,
+			expectedNumDeciders: []int{1},
+			expectedError:       true,
+		},
 	}
 
 	for _, testCase := range testCases {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,10 @@ func InitDeciderTemplates() {
 		"AllSilencesHaveAuthor": {
 			requiredConfigVars: []string{"domain"},
 			templateFunc:       AllSilencesHaveAuthorDecider,
+		},
+		"Mirror": {
+			requiredConfigVars: []string{"destination"},
+			templateFunc:       MirrorDecider,
 		},
 	}
 }
@@ -112,6 +117,39 @@ func AllSilencesHaveAuthorDecider(config map[string]string) Decider {
 			}
 		}
 
+		return nil
+	}
+}
+
+// MirrorDecider is a Decider which mirrors requests that it receives
+// to an alternate location. This can be used for e.g. to spin up testing
+// alertmanagers which receive everything a production one does
+func MirrorDecider(config map[string]string) Decider {
+	destination := config["destination"]
+	return func(req *http.Request) *HTTPError {
+		url := destination + req.RequestURI
+		request, err := http.NewRequest(
+			req.Method,
+			url,
+			req.Body,
+		)
+
+		if err != nil {
+			return &HTTPError{
+				Status: 500,
+				Err:    fmt.Errorf("Failed to create request to %s: %s", url, err),
+			}
+		}
+
+		for name, values := range req.Header {
+			for _, value := range values {
+				request.Header.Add(name, value)
+			}
+		}
+
+		log.Printf("Mirroring request to %s\n", destination)
+
+		http.DefaultClient.Do(request)
 		return nil
 	}
 }
