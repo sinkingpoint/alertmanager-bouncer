@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/alecthomas/kong"
 	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
@@ -45,10 +45,10 @@ func main() {
 	var err error
 	bouncers, err := loadBouncersFromFile()
 	if err != nil {
-		log.Panicf("Failed to parse bouncers from %s: %s", config.BouncersConfigFile, err.Error())
+		log.Fatal().Str("file", config.BouncersConfigFile).Err(err).Msg("Failed to parse bouncers")
 	}
 
-	fmt.Printf("Loaded %d bouncers\n", len(bouncers))
+	log.Debug().Msgf("Loaded %d bouncers\n", len(bouncers))
 
 	proxy := bouncer.NewBouncingReverseProxy(config.BackendURL, bouncers, nil)
 	server := http.Server{
@@ -79,14 +79,14 @@ func main() {
 		err = server.ListenAndServeTLS(config.TlsCertFile, config.TlsKeyFile)
 	} else {
 		if config.TlsCertFile != "" {
-			log.Fatalln("TLS Cert file given without TLS Key File. Bailing.")
+			log.Fatal().Msg("TLS Cert file given without TLS Key File. Bailing.")
 		} else if config.TlsKeyFile != "" {
-			log.Fatalln("TLS Key file given without TLS Config File. Bailing.")
+			log.Fatal().Msg("TLS Key file given without TLS Config File. Bailing.")
 		}
 		err = server.ListenAndServe()
 	}
 
-	if err != nil {
-		log.Fatalf("Got an error while serving HTTP: %s\n", err.Error())
+	if err != http.ErrServerClosed {
+		log.Fatal().Err(err).Msg("Got an error while serving HTTP")
 	}
 }

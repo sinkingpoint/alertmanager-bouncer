@@ -1,7 +1,6 @@
 package bouncer_test
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,23 +9,12 @@ import (
 	"testing"
 
 	"github.com/grafana/regexp"
+	"github.com/stretchr/testify/require"
 
 	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
+	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer/deciders"
+	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer/testutil"
 )
-
-func mustMakeRequest(t *testing.T, method, urlString, body string) *http.Request {
-	t.Helper()
-	url, err := url.Parse(urlString)
-	if err != nil {
-		t.Fatalf(err.Error())
-	}
-
-	return &http.Request{
-		Method: method,
-		URL:    url,
-		Body:   io.NopCloser(bytes.NewBufferString(body)),
-	}
-}
 
 func TestParseBouncers(t *testing.T) {
 	testCases := []struct {
@@ -36,59 +24,75 @@ func TestParseBouncers(t *testing.T) {
 		expectedError       bool
 	}{
 		{
-			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: []}]}`,
+			serialized: `
+bouncers:
+ - method: "POST"
+   uriRegex: "cats"
+   deciders: []
+`,
 			expectedNumBouncers: 1,
 			expectedNumDeciders: []int{0},
 			expectedError:       false,
 		},
 		{
-			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAuthor", "config":{}}]}]}`,
-			expectedNumBouncers: 1,
-			expectedNumDeciders: []int{1},
+			serialized: `
+bouncers:
+  - method: "POST"
+	uriRegex: "cats"
+	deciders:
+	  - name: AllSilencesHaveAuthor
+		config: {}`,
+			expectedNumBouncers: 0,
+			expectedNumDeciders: []int{0},
 			expectedError:       true,
 		},
 		{
-			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAuthor", "config":{"domain":"quirl.co.nz"}}]}]}`,
+			serialized: `
+bouncers:
+  - method: "POST"
+    uriRegex: "cats"
+    deciders:
+      - name: AllSilencesHaveAuthor
+        config:
+          domain: "quirl.co.nz"
+`,
 			expectedNumBouncers: 1,
 			expectedNumDeciders: []int{1},
 			expectedError:       false,
 		},
 		{
-			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAutho", "config":{"domain":"quirl.co.nz"}}]}]}`,
-			expectedNumBouncers: 1,
-			expectedNumDeciders: []int{1},
-			expectedError:       true,
-		},
-		{
-			serialized:          `{"bouncers": [{"method": "POST", "uriRegex":"cats", deciders: [{"name": "AllSilencesHaveAuthor", "config":{}}]}]}`,
-			expectedNumBouncers: 1,
-			expectedNumDeciders: []int{1},
+			serialized: `
+bouncers:
+  - method: "POST"
+    uriRegex: "cats"
+    deciders:
+      - name: AllSilencesHaveAuthor
+        config:
+          - domain: "quirl.co.nz"
+`,
+			expectedNumBouncers: 0,
+			expectedNumDeciders: []int{0},
 			expectedError:       true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		bouncers, err := bouncer.ParseBouncers([]byte(testCase.serialized))
-		if err != nil {
-			if !testCase.expectedError {
-				t.Errorf("Got an error parsing bouncers, but didn't expect one: %s", err.Error())
-			}
-			continue
-		} else if err == nil && testCase.expectedError {
-			t.Errorf("Expected an error, but didn't get one")
-			continue
-		}
+		t.Run(fmt.Sprintf("Test %s", testCase.serialized), func(t *testing.T) {
+			bouncers, err := bouncer.ParseBouncers([]byte(testCase.serialized))
 
-		if len(bouncers) != testCase.expectedNumBouncers {
-			t.Errorf("Expected to load %d bouncers, but loaded %d", testCase.expectedNumBouncers, len(bouncers))
-			continue
-		}
-
-		for i, bouncer := range bouncers {
-			if len(bouncer.Deciders) != testCase.expectedNumDeciders[i] {
-				t.Errorf("Expected bouncer %d to load %d deciders, but loaded %d", i, testCase.expectedNumDeciders, len(bouncer.Deciders))
+			if testCase.expectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-		}
+
+			require.Len(t, bouncers, testCase.expectedNumBouncers, "Unexpected number of bouncers")
+
+			for i, bouncer := range bouncers {
+				require.Len(t, bouncer.Deciders, testCase.expectedNumDeciders[i], "Unexpected number of deciders in bouncer %d", i)
+			}
+		})
+
 	}
 }
 
@@ -105,34 +109,33 @@ func TestTargetMatches(t *testing.T) {
 				Method:   "poST",
 				URIRegex: regexp.MustCompile("/api/v1/silences"),
 			},
-			request:        mustMakeRequest(t, "POsT", "http://testendpoint/api/v1/silences", ""),
+			request:        testutil.MustMakeRequest(t, http.MethodPost, "http://testendpoint/api/v1/silences", ""),
 			expectedOutput: true,
 		},
 		{
 			name: "Test regexp is applied",
 			target: bouncer.Target{
-				Method:   "POST",
+				Method:   http.MethodPost,
 				URIRegex: regexp.MustCompile("^/api/v[12]/silences$"),
 			},
-			request:        mustMakeRequest(t, "POST", "http://testendpoint/api/v1/silences", ""),
+			request:        testutil.MustMakeRequest(t, http.MethodPost, "http://testendpoint/api/v1/silences", ""),
 			expectedOutput: true,
 		},
 		{
 			name: "Test doesn't match invalid",
 			target: bouncer.Target{
-				Method:   "POST",
+				Method:   http.MethodPost,
 				URIRegex: regexp.MustCompile("/api/v/silences"),
 			},
-			request:        mustMakeRequest(t, "POST", "http://testendpoint/api/v1/silences", ""),
+			request:        testutil.MustMakeRequest(t, http.MethodPost, "http://testendpoint/api/v1/silences", ""),
 			expectedOutput: false,
 		},
 	}
 
 	for _, testCase := range testCases {
-		actualOutput := testCase.target.Matches(testCase.request)
-		if actualOutput != testCase.expectedOutput {
-			t.Errorf("Test '%s' failed - expected %t got %t\n", testCase.name, testCase.expectedOutput, actualOutput)
-		}
+		t.Run(testCase.name, func(t *testing.T) {
+			require.Equal(t, testCase.expectedOutput, testCase.target.Matches(testCase.request))
+		})
 	}
 }
 
@@ -141,16 +144,14 @@ func TestBouncerBounces(t *testing.T) {
 
 	// Setup a backend server to proxy requests to
 	const backendResponse = "I am the backend"
-	const backendStatus = 404
+	const backendStatus = http.StatusNotFound
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(backendStatus)
 		w.Write([]byte(backendResponse))
 	}))
 	defer backend.Close()
 	backendURL, err := url.Parse(backend.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	testCases := [...]struct {
 		name           string
@@ -164,7 +165,7 @@ func TestBouncerBounces(t *testing.T) {
 		{
 			name:           "Test No Bouncers Proxies",
 			bouncers:       []bouncer.Bouncer{},
-			requestMethod:  "GET",
+			requestMethod:  http.MethodGet,
 			requestURI:     "/api/v1/silences",
 			requestBody:    "",
 			expectedStatus: backendStatus,
@@ -175,22 +176,22 @@ func TestBouncerBounces(t *testing.T) {
 			bouncers: []bouncer.Bouncer{
 				{
 					Target: bouncer.Target{
-						Method:   "GET",
+						Method:   http.MethodGet,
 						URIRegex: regexp.MustCompile(".*"),
 					},
-					Deciders: []bouncer.Decider{
-						func(req *http.Request) *bouncer.HTTPError {
-							return &bouncer.HTTPError{
-								Err:    fmt.Errorf("No"),
-								Status: 401,
+					Deciders: []deciders.Decider{
+						deciders.DeciderFunc(func(req *http.Request) *deciders.HTTPError {
+							return &deciders.HTTPError{
+								Err:    "No",
+								Status: http.StatusBadRequest,
 							}
-						},
+						}),
 					},
 				},
 			},
-			requestMethod:  "GET",
+			requestMethod:  http.MethodGet,
 			requestBody:    "",
-			expectedStatus: 401,
+			expectedStatus: http.StatusBadRequest,
 			expectedOutput: "No",
 		},
 		{
@@ -198,17 +199,17 @@ func TestBouncerBounces(t *testing.T) {
 			bouncers: []bouncer.Bouncer{
 				{
 					Target: bouncer.Target{
-						Method:   "GET",
+						Method:   http.MethodGet,
 						URIRegex: regexp.MustCompile(".*"),
 					},
-					Deciders: []bouncer.Decider{
-						func(req *http.Request) *bouncer.HTTPError {
+					Deciders: []deciders.Decider{
+						deciders.DeciderFunc(func(req *http.Request) *deciders.HTTPError {
 							return nil
-						},
+						}),
 					},
 				},
 			},
-			requestMethod:  "GET",
+			requestMethod:  http.MethodGet,
 			requestBody:    "",
 			expectedStatus: backendStatus,
 			expectedOutput: backendResponse,
@@ -220,52 +221,52 @@ func TestBouncerBounces(t *testing.T) {
 			bouncers: []bouncer.Bouncer{
 				{
 					Target: bouncer.Target{
-						Method:   "GET",
+						Method:   http.MethodGet,
 						URIRegex: regexp.MustCompile(".*"),
 					},
-					Deciders: []bouncer.Decider{
-						func(req *http.Request) *bouncer.HTTPError {
+					Deciders: []deciders.Decider{
+						deciders.DeciderFunc(func(req *http.Request) *deciders.HTTPError {
 							body, err := io.ReadAll(req.Body)
 							if err != nil {
-								return &bouncer.HTTPError{
-									Err:    err,
-									Status: 400,
+								return &deciders.HTTPError{
+									Err:    err.Error(),
+									Status: http.StatusBadRequest,
 								}
 							}
 
 							if len(body) == 0 {
 								fmt.Printf("Body is 0 in first\n")
-								return &bouncer.HTTPError{
-									Err:    fmt.Errorf("No"),
-									Status: 400,
+								return &deciders.HTTPError{
+									Err:    "No",
+									Status: http.StatusBadRequest,
 								}
 							}
 
 							return nil
-						},
-						func(req *http.Request) *bouncer.HTTPError {
+						}),
+						deciders.DeciderFunc(func(req *http.Request) *deciders.HTTPError {
 							body, err := io.ReadAll(req.Body)
 							if err != nil {
-								return &bouncer.HTTPError{
-									Err:    err,
+								return &deciders.HTTPError{
+									Err:    err.Error(),
 									Status: 400,
 								}
 							}
 
 							if len(body) == 0 {
 								fmt.Printf("Body is 0 in second\n")
-								return &bouncer.HTTPError{
-									Err:    fmt.Errorf("No"),
+								return &deciders.HTTPError{
+									Err:    "No",
 									Status: 400,
 								}
 							}
 
 							return nil
-						},
+						}),
 					},
 				},
 			},
-			requestMethod:  "GET",
+			requestMethod:  http.MethodGet,
 			requestBody:    "TestBody",
 			expectedStatus: backendStatus,
 			expectedOutput: backendResponse,
@@ -278,20 +279,15 @@ func TestBouncerBounces(t *testing.T) {
 		defer frontend.Close()
 		frontendClient := frontend.Client()
 
-		request := mustMakeRequest(t, testCase.requestMethod, frontend.URL+testCase.requestURI, testCase.requestBody)
+		request := testutil.MustMakeRequest(t, testCase.requestMethod, frontend.URL+testCase.requestURI, testCase.requestBody)
 		response, err := frontendClient.Do(request)
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 		defer response.Body.Close()
 
 		body, err := io.ReadAll(response.Body)
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 
-		if string(body) != testCase.expectedOutput || response.StatusCode != testCase.expectedStatus {
-			t.Errorf("Test '%s' failed - expected (%d, %s) but got (%d, %s)\n", testCase.name, testCase.expectedStatus, testCase.expectedOutput, response.StatusCode, string(body))
-		}
+		require.Equal(t, testCase.expectedOutput, string(body))
+		require.Equal(t, testCase.expectedStatus, response.StatusCode)
 	}
 }

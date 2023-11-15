@@ -4,20 +4,21 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 
 	"github.com/grafana/regexp"
+	"github.com/rs/zerolog/log"
+	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer/deciders"
 
 	"gopkg.in/yaml.v3"
 )
 
 type deciderSerialized struct {
-	Name   string            `yaml:"name"`
-	Config map[string]string `yaml:"config"`
+	Name   string                 `yaml:"name"`
+	Config map[string]interface{} `yaml:"config"`
 }
 
 type bouncerSerialized struct {
@@ -29,18 +30,20 @@ type bouncerSerialized struct {
 
 // ParseBouncers loads a slice of Bouncers from a given byte array
 // which should represent a YAML encoded text stream of serialized bouncers.
-func ParseBouncers(bytes []byte) ([]Bouncer, error) {
-	InitDeciderTemplates()
+func ParseBouncers(b []byte) ([]Bouncer, error) {
 	var serializedBouncers struct {
 		Bouncers []bouncerSerialized `yaml:"bouncers"`
 	}
-	err := yaml.Unmarshal(bytes, &serializedBouncers)
-	if err != nil {
+
+	decoder := yaml.NewDecoder(bytes.NewReader(b))
+	decoder.KnownFields(true)
+
+	if err := decoder.Decode(&serializedBouncers); err != nil {
 		return nil, err
 	}
 
-	bouncers := make([]Bouncer, len(serializedBouncers.Bouncers))
-	for bouncerIndex, serializedBouncer := range serializedBouncers.Bouncers {
+	bouncers := make([]Bouncer, 0, len(serializedBouncers.Bouncers))
+	for _, serializedBouncer := range serializedBouncers.Bouncers {
 		uriRegex, err := regexp.Compile(serializedBouncer.URIRegex)
 		if err != nil {
 			return nil, err
@@ -51,26 +54,25 @@ func ParseBouncers(bytes []byte) ([]Bouncer, error) {
 			URIRegex: uriRegex,
 		}
 
-		deciders := make([]Decider, len(serializedBouncer.Deciders))
-		for deciderIndex, serializedDecider := range serializedBouncer.Deciders {
+		deciders := make([]deciders.Decider, 0, len(serializedBouncer.Deciders))
+		for _, serializedDecider := range serializedBouncer.Deciders {
 			if _, exists := deciderTemplates[serializedDecider.Name]; !exists {
 				return nil, fmt.Errorf("no decider template named %q found", serializedDecider.Name)
 			}
 
-			for _, expected := range deciderTemplates[serializedDecider.Name].requiredConfigVars {
-				if _, exists := serializedDecider.Config[expected]; !exists {
-					return nil, fmt.Errorf("expected config variable %s not found for %s", expected, serializedDecider.Name)
-				}
+			decider, err := deciderTemplates[serializedDecider.Name].Make(serializedDecider.Config)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create decider %q: %s", serializedDecider.Name, err)
 			}
 
-			deciders[deciderIndex] = deciderTemplates[serializedDecider.Name].templateFunc(serializedDecider.Config)
+			deciders = append(deciders, decider)
 		}
 
-		bouncers[bouncerIndex] = Bouncer{
+		bouncers = append(bouncers, Bouncer{
 			Target:   target,
 			Deciders: deciders,
 			DryRun:   serializedBouncer.DryRun,
-		}
+		})
 	}
 
 	return bouncers, nil
@@ -90,32 +92,15 @@ func (t Target) Matches(req *http.Request) bool {
 	return methodMatches && uriMatches
 }
 
-// HTTPError represents an error, coupled with an HTTP Status Code.
-type HTTPError struct {
-	Status int
-	Err    error
-}
-
-// ToResponse converts the given HTTPError into an HTTP Response, which can be sent back to a client.
-func (h *HTTPError) ToResponse() *http.Response {
-	return &http.Response{
-		StatusCode: h.Status,
-		Body:       io.NopCloser(bytes.NewBufferString(h.Err.Error())),
-	}
-}
-
-// Decider is a function which takes an HTTP request and optionally returns an HTTPError, if the given request should be rejected.
-type Decider func(req *http.Request) *HTTPError
-
 // Bouncer is a coupling of a Target, and a number of deciders. It can optionally "Bounce" a request, i.e. reject it based on a series of Deciders.
 type Bouncer struct {
 	Target   Target
-	Deciders []Decider
+	Deciders []deciders.Decider
 	DryRun   bool
 }
 
 // Bounce takes an HTTPRequest and optionally returns an HTTPError if the request should be "Bounced", i.e. rejected.
-func (b Bouncer) Bounce(req *http.Request) *HTTPError {
+func (b Bouncer) Bounce(req *http.Request) *deciders.HTTPError {
 	if !b.Target.Matches(req) {
 		return nil
 	}
@@ -129,9 +114,9 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 		defer req.Body.Close()
 		rawBody, err = io.ReadAll(req.Body)
 		if err != nil {
-			return &HTTPError{
+			return &deciders.HTTPError{
 				Status: http.StatusBadRequest,
-				Err:    fmt.Errorf("failed to read body from request"),
+				Err:    "failed to read body from request",
 			}
 		}
 	}
@@ -139,12 +124,12 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 	for _, decider := range b.Deciders {
 		req.Body = io.NopCloser(bytes.NewBuffer(rawBody))
 		defer req.Body.Close()
-		err := decider(req)
+		err := decider.Decide(req)
 		if err != nil {
 			if b.DryRun {
-				log.Printf("Would have rejected %s %s: %s\n", req.Method, req.URL.RequestURI(), err.Err.Error())
+				log.Info().Msgf("Would have rejected %s %s: %s", req.Method, req.URL.RequestURI(), err.Err)
 			} else {
-				log.Printf("Rejected %s %s: %s\n", req.Method, req.URL.RequestURI(), err.Err.Error())
+				log.Debug().Msgf("Rejected %s %s: %s", req.Method, req.URL.RequestURI(), err.Err)
 				return err
 			}
 		}
@@ -176,8 +161,7 @@ func SetBouncers(bouncers []Bouncer, proxy *httputil.ReverseProxy) error {
 
 func (b bouncingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	for _, bouncer := range b.bouncers {
-		err := bouncer.Bounce(request)
-		if err != nil {
+		if err := bouncer.Bounce(request); err != nil {
 			return err.ToResponse(), nil
 		}
 	}
