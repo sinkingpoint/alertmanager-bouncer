@@ -6,9 +6,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/grafana/regexp"
 )
 
 type deciderTemplate struct {
@@ -18,9 +19,7 @@ type deciderTemplate struct {
 
 var deciderTemplates map[string]deciderTemplate
 
-// InitDeciderTemplates sets up the bouncerTemplates map
-// allowing finding a bouncerTemplate by a given name. Used to
-// deserialize a list of bouncers
+// InitDeciderTemplates sets up the bouncerTemplates map allowing finding a bouncerTemplate by a given name. Used to deserialize a list of bouncers.
 func InitDeciderTemplates() {
 	deciderTemplates = map[string]deciderTemplate{
 		"AllSilencesHaveAuthor": {
@@ -48,7 +47,7 @@ type matcher struct {
 	Value   string `json:"value"`
 }
 
-// alertmanagerSilenceSerialized represents a serialized silence from amtool in JSON
+// alertmanagerSilenceSerialized represents a serialized silence from amtool in JSON.
 // e.g.
 //
 //	{
@@ -72,7 +71,7 @@ type alertmanagerSilenceSerialized struct {
 	Matchers []matcher `json:"matchers"`
 }
 
-// AlertmanagerSilence represents a Silence to be applied to Alertmanager
+// AlertmanagerSilence represents a Silence to be applied to Alertmanager.
 type AlertmanagerSilence struct {
 	Comment  string
 	Author   string
@@ -87,11 +86,15 @@ func parseAlertmanagerSilence(body io.ReadCloser) (AlertmanagerSilence, error) {
 		return AlertmanagerSilence{}, fmt.Errorf("failed to read body")
 	}
 	serialized := alertmanagerSilenceSerialized{}
-	json.Unmarshal(bodyBytes, &serialized)
+	if err := json.Unmarshal(bodyBytes, &serialized); err != nil {
+		return AlertmanagerSilence{}, err
+	}
+
 	startTime, err := time.Parse(time.RFC3339, serialized.StartsAt)
 	if err != nil {
 		return AlertmanagerSilence{}, fmt.Errorf("start Time %s is not a valid RFC3339 time string", serialized.StartsAt)
 	}
+
 	endTime, err := time.Parse(time.RFC3339, serialized.EndsAt)
 	if err != nil {
 		return AlertmanagerSilence{}, fmt.Errorf("end Time %s is not a valid RFC3339 time string", serialized.EndsAt)
@@ -106,8 +109,7 @@ func parseAlertmanagerSilence(body io.ReadCloser) (AlertmanagerSilence, error) {
 	}, nil
 }
 
-// AllSilencesHaveAuthorDecider returns a decider that rejects requests that
-// do not have authors which end in the given domain string
+// AllSilencesHaveAuthorDecider returns a decider that rejects silences that do not have authors which end in the given domain string.
 func AllSilencesHaveAuthorDecider(config map[string]string) Decider {
 	return func(req *http.Request) *HTTPError {
 		domain := config["domain"]
@@ -130,9 +132,8 @@ func AllSilencesHaveAuthorDecider(config map[string]string) Decider {
 	}
 }
 
-// MirrorDecider is a Decider which mirrors requests that it receives
-// to an alternate location. This can be used for e.g. to spin up testing
-// alertmanagers which receive everything a production one does
+// MirrorDecider is a Decider which mirrors requests that it receives to an alternate location. This can be used for e.g. to spin up testing
+// alertmanagers which receive everything a production one does.
 func MirrorDecider(config map[string]string) Decider {
 	destination := config["destination"]
 	return func(req *http.Request) *HTTPError {
@@ -142,10 +143,9 @@ func MirrorDecider(config map[string]string) Decider {
 			url,
 			req.Body,
 		)
-
 		if err != nil {
 			return &HTTPError{
-				Status: 500,
+				Status: http.StatusInternalServerError,
 				Err:    fmt.Errorf("failed to create request to %s: %s", url, err),
 			}
 		}
@@ -158,13 +158,22 @@ func MirrorDecider(config map[string]string) Decider {
 
 		log.Printf("Mirroring request to %s\n", destination)
 
-		http.DefaultClient.Do(request)
+		resp, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return &HTTPError{
+				Status: http.StatusBadGateway,
+				Err:    fmt.Errorf("failed to mirror request to %s: %s", url, err),
+			}
+		}
+
+		resp.Body.Close()
+
 		return nil
 	}
 }
 
 // SilencesDontExpireOnWeekendsDecider returns a Decider which rejects silences
-// that expire on weekends, so that we don't spring any surprises on someone oncall over the weekend
+// that expire on weekends, so that we don't spring any surprises on someone oncall over the weekend.
 func SilencesDontExpireOnWeekendsDecider(config map[string]string) Decider {
 	return func(req *http.Request) *HTTPError {
 		silence, err := parseAlertmanagerSilence(req.Body)
@@ -189,7 +198,7 @@ func SilencesDontExpireOnWeekendsDecider(config map[string]string) Decider {
 
 // LongSilencesHaveTicketDecider returns a Decider which rejects silences longer than
 // the given duration, which don't have a comment matching the "ticket_regex" (defaults to a JIRA ticket format)
-// This allows us to not have long running throwaway silences without a ticket to track ongoing work
+// This allows us to not have long running throwaway silences without a ticket to track ongoing work.
 func LongSilencesHaveTicketDecider(config map[string]string) Decider {
 	maxLengthWithoutTicket, err := time.ParseDuration(config["maxLength"])
 	if err != nil {

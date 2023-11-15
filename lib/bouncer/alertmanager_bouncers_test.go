@@ -2,7 +2,7 @@ package bouncer_test
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,8 +11,10 @@ import (
 	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
 )
 
-func mustBuildRequest(input string, t *testing.T) *http.Request {
-	req, err := http.NewRequest("GET", "localhost", ioutil.NopCloser(bytes.NewBufferString(input)))
+func mustBuildRequest(t *testing.T, input string) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequest("GET", "localhost", io.NopCloser(bytes.NewBufferString(input)))
 	req.Header.Add("X-Test", "Cats")
 	if err != nil {
 		t.Fatalf("%s", err.Error())
@@ -50,7 +52,7 @@ func TestAllSilencesHaveAuthorDecider(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		response := testCase.decider(mustBuildRequest(testCase.input, t))
+		response := testCase.decider(mustBuildRequest(t, testCase.input))
 		if (response == nil) != testCase.expectedSuccess {
 			var errorText string
 			if response != nil {
@@ -78,7 +80,7 @@ func TestMirrorDecider(t *testing.T) {
 	defer backend.Close()
 
 	decider := bouncer.MirrorDecider(map[string]string{"destination": backend.URL})
-	err := decider(mustBuildRequest("", t))
+	err := decider(mustBuildRequest(t, ""))
 	if err != nil {
 		t.Fatalf("Got error mirroring reqest: %s", err.Err.Error())
 	}
@@ -111,7 +113,7 @@ func TestSilencesDontExpireOnWeekendsDecider(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		response := testCase.decider(mustBuildRequest(testCase.input, t))
+		response := testCase.decider(mustBuildRequest(t, testCase.input))
 		if (response == nil) != testCase.expectedSuccess {
 			var errorText string
 			if response != nil {
@@ -164,7 +166,7 @@ func TestLongSilencesHaveTicketDecider(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		response := testCase.decider(mustBuildRequest(testCase.input, t))
+		response := testCase.decider(mustBuildRequest(t, testCase.input))
 		if (response == nil) != testCase.expectedSuccess {
 			var errorText string
 			if response != nil {

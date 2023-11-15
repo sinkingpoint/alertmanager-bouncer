@@ -69,7 +69,9 @@ func main() {
 				log.Printf("Failed to parse bouncers from %s: %s. Aboring Reload.", config.BouncersConfigFile, err.Error())
 			}
 
-			bouncer.SetBouncers(bouncers, proxy)
+			if err := bouncer.SetBouncers(bouncers, proxy); err != nil {
+				log.Printf("Failed to set bouncers on proxy: %s. Aborting Reload.", err.Error())
+			}
 		}
 	}()
 

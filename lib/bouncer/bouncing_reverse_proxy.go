@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"regexp"
 	"strings"
+
+	"github.com/grafana/regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -75,30 +76,27 @@ func ParseBouncers(bytes []byte) ([]Bouncer, error) {
 	return bouncers, nil
 }
 
-// Target Represents a potential target for an HTTP request
-// with both a Method (Which represents the HTTP method), and a URI Regex
-// which matches the URI of the request
+// Target Represents a potential target for an HTTP request with both a Method (Which represents the HTTP method), and a URI Regex
+// which matches the URI of the request.
 type Target struct {
 	Method   string
 	URIRegex *regexp.Regexp
 }
 
-// Matches returns whether the given the given Target matches the given
-// request, i.e. the method matches, and the URI matches the regex
+// Matches returns whether the given the given Target matches the given request, i.e. the method matches, and the URI matches the regex.
 func (t Target) Matches(req *http.Request) bool {
 	methodMatches := strings.EqualFold(req.Method, t.Method)
 	uriMatches := t.URIRegex.MatchString(req.URL.RequestURI())
 	return methodMatches && uriMatches
 }
 
-// HTTPError represents an error, coupled with an HTTP Status Code
+// HTTPError represents an error, coupled with an HTTP Status Code.
 type HTTPError struct {
 	Status int
 	Err    error
 }
 
-// ToResponse converts the given HTTPError into an HTTP Response,
-// which can be sent back to a client
+// ToResponse converts the given HTTPError into an HTTP Response, which can be sent back to a client.
 func (h *HTTPError) ToResponse() *http.Response {
 	return &http.Response{
 		StatusCode: h.Status,
@@ -106,27 +104,23 @@ func (h *HTTPError) ToResponse() *http.Response {
 	}
 }
 
-// Decider is a function which takes an HTTP request and optionally returns
-// an HTTPError, if the given request should be rejected
+// Decider is a function which takes an HTTP request and optionally returns an HTTPError, if the given request should be rejected.
 type Decider func(req *http.Request) *HTTPError
 
-// Bouncer is a coupling of a Target, and a number of deciders. It can optionally
-// "Bounce" a request, i.e. reject it based on a series of Deciders
+// Bouncer is a coupling of a Target, and a number of deciders. It can optionally "Bounce" a request, i.e. reject it based on a series of Deciders.
 type Bouncer struct {
 	Target   Target
 	Deciders []Decider
 	DryRun   bool
 }
 
-// Bounce takes an HTTPRequest and optionally returns an HTTPError
-// if the request should be "Bounced", i.e. rejected.
+// Bounce takes an HTTPRequest and optionally returns an HTTPError if the request should be "Bounced", i.e. rejected.
 func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 	if !b.Target.Matches(req) {
 		return nil
 	}
 
-	// We want multiple deciders to be able to read the body, so
-	// we have to read it here, and then reload it into a buffer for every decider
+	// We want multiple deciders to be able to read the body, so we have to read it here, and then reload it into a buffer for every decider.
 	var rawBody []byte
 	var err error
 	if req.Body == nil || req.Body == http.NoBody {
@@ -165,9 +159,7 @@ type bouncingTransport struct {
 	bouncers         []Bouncer
 }
 
-// SetBouncers sets the set of bouncers on the given proxy
-// This allows us to reload a set of bouncers on a running proxy, without
-// restarting the process
+// SetBouncers updates the bouncers on the given proxy.
 func SetBouncers(bouncers []Bouncer, proxy *httputil.ReverseProxy) error {
 	transport, ok := proxy.Transport.(bouncingTransport)
 	if !ok {
@@ -192,8 +184,7 @@ func (b bouncingTransport) RoundTrip(request *http.Request) (*http.Response, err
 	return b.backingTransport.RoundTrip(request)
 }
 
-// NewBouncingReverseProxy generates a ReverseProxy instance which runs the given
-// set of bouncers on every request that passes through it
+// NewBouncingReverseProxy generates a ReverseProxy instance which runs the given set of bouncers on every request that passes through it.
 func NewBouncingReverseProxy(backend *url.URL, bouncers []Bouncer, backingTransport http.RoundTripper) *httputil.ReverseProxy {
 	if backingTransport == nil {
 		backingTransport = http.DefaultTransport

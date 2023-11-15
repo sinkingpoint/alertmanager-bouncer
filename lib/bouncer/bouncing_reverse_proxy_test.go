@@ -3,17 +3,19 @@ package bouncer_test
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"testing"
+
+	"github.com/grafana/regexp"
 
 	"github.com/sinkingpoint/alertmanager_bouncer/lib/bouncer"
 )
 
-func mustMakeRequest(t *testing.T, method string, urlString string, body string) *http.Request {
+func mustMakeRequest(t *testing.T, method, urlString, body string) *http.Request {
+	t.Helper()
 	url, err := url.Parse(urlString)
 	if err != nil {
 		t.Fatalf(err.Error())
@@ -22,7 +24,7 @@ func mustMakeRequest(t *testing.T, method string, urlString string, body string)
 	return &http.Request{
 		Method: method,
 		URL:    url,
-		Body:   ioutil.NopCloser(bytes.NewBufferString(body)),
+		Body:   io.NopCloser(bytes.NewBufferString(body)),
 	}
 }
 
@@ -171,7 +173,7 @@ func TestBouncerBounces(t *testing.T) {
 		{
 			name: "Test Reject All Bouncer Rejects",
 			bouncers: []bouncer.Bouncer{
-				bouncer.Bouncer{
+				{
 					Target: bouncer.Target{
 						Method:   "GET",
 						URIRegex: regexp.MustCompile(".*"),
@@ -194,7 +196,7 @@ func TestBouncerBounces(t *testing.T) {
 		{
 			name: "Test Accept All Bouncer Accepts",
 			bouncers: []bouncer.Bouncer{
-				bouncer.Bouncer{
+				{
 					Target: bouncer.Target{
 						Method:   "GET",
 						URIRegex: regexp.MustCompile(".*"),
@@ -216,14 +218,14 @@ func TestBouncerBounces(t *testing.T) {
 			// This test makes sure that if one Decider reads the body, a subsequent one can as well
 			name: "Test Multiple Bouncers Can Read Body",
 			bouncers: []bouncer.Bouncer{
-				bouncer.Bouncer{
+				{
 					Target: bouncer.Target{
 						Method:   "GET",
 						URIRegex: regexp.MustCompile(".*"),
 					},
 					Deciders: []bouncer.Decider{
 						func(req *http.Request) *bouncer.HTTPError {
-							body, err := ioutil.ReadAll(req.Body)
+							body, err := io.ReadAll(req.Body)
 							if err != nil {
 								return &bouncer.HTTPError{
 									Err:    err,
@@ -242,7 +244,7 @@ func TestBouncerBounces(t *testing.T) {
 							return nil
 						},
 						func(req *http.Request) *bouncer.HTTPError {
-							body, err := ioutil.ReadAll(req.Body)
+							body, err := io.ReadAll(req.Body)
 							if err != nil {
 								return &bouncer.HTTPError{
 									Err:    err,
@@ -281,8 +283,9 @@ func TestBouncerBounces(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		defer response.Body.Close()
 
-		body, err := ioutil.ReadAll(response.Body)
+		body, err := io.ReadAll(response.Body)
 		if err != nil {
 			t.Error(err)
 		}
