@@ -14,3 +14,8 @@ var deciderTemplates = map[string]deciders.Template{
 	"SilencesDontExpireOnWeekends": deciders.TemplateFunc(silencesnotonweekends.New),
 	"LongSilencesHaveTicket":       deciders.TemplateFunc(silenceshaveticket.New),
 }
+
+func GetDeciderTemplate(name string) (deciders.Template, bool) {
+	template, ok := deciderTemplates[name]
+	return template, ok
+}

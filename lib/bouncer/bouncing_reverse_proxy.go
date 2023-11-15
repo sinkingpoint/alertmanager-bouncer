@@ -100,7 +100,7 @@ type Bouncer struct {
 }
 
 // Bounce takes an HTTPRequest and optionally returns an HTTPError if the request should be "Bounced", i.e. rejected.
-func (b Bouncer) Bounce(req *http.Request) *deciders.HTTPError {
+func (b *Bouncer) Bounce(req *http.Request) *deciders.HTTPError {
 	if !b.Target.Matches(req) {
 		return nil
 	}
@@ -165,6 +165,7 @@ func (b bouncingTransport) RoundTrip(request *http.Request) (*http.Response, err
 			return err.ToResponse(), nil
 		}
 	}
+
 	return b.backingTransport.RoundTrip(request)
 }
 
@@ -173,6 +174,7 @@ func NewBouncingReverseProxy(backend *url.URL, bouncers []Bouncer, backingTransp
 	if backingTransport == nil {
 		backingTransport = http.DefaultTransport
 	}
+
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	proxy.Transport = bouncingTransport{
 		backingTransport: backingTransport,

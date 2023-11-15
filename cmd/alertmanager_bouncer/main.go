@@ -42,7 +42,6 @@ func loadBouncersFromFile() ([]bouncer.Bouncer, error) {
 func main() {
 	kong.Parse(&config)
 
-	var err error
 	bouncers, err := loadBouncersFromFile()
 	if err != nil {
 		log.Fatal().Str("file", config.BouncersConfigFile).Err(err).Msg("Failed to parse bouncers")
