@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -17,26 +17,21 @@ import (
 )
 
 type config struct {
-	backendURL            *url.URL
-	listenURL             *net.TCPAddr
-	dialTimeout           time.Duration
-	tlsHandshakeTimeout   time.Duration
-	responseHeaderTimeout time.Duration
-	serverReadTimeout     time.Duration
-	serverWriteTimeout    time.Duration
-	tlsCertFile           string
-	tlsKeyFile            string
-	bouncersConfigFile    string
+	backendURL         *url.URL
+	listenURL          *net.TCPAddr
+	tlsCertFile        string
+	tlsKeyFile         string
+	bouncersConfigFile string
 }
 
 func loadBouncersFromFile(conf config) ([]bouncer.Bouncer, error) {
 	jsonFile, err := os.Open(conf.bouncersConfigFile)
-	defer jsonFile.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer jsonFile.Close()
 
-	bytes, err := ioutil.ReadAll(jsonFile)
+	bytes, err := io.ReadAll(jsonFile)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +45,6 @@ func main() {
 	app.Flag("backend.addr", "The URL of the backend to upstream to").Required().URLVar(&config.backendURL)
 	app.Flag("listen.addr", "The URL for the reverse proxy to listen on").Required().TCPVar(&config.listenURL)
 	app.Flag("config.bouncersfile", "The file containing the list of bouncers to create").Required().ExistingFileVar(&config.bouncersConfigFile)
-	app.Flag("timeout.dial", "The timeout of the initial connection to the backend").Default("30s").DurationVar(&config.dialTimeout)
-	app.Flag("timeout.tlshandshake", "The timeout of the TLS handshake to the backend, after a connection is established").Default("10s").DurationVar(&config.tlsHandshakeTimeout)
-	app.Flag("timeout.responseheader", "The timeout of the receive of the initial headers from the backend").Default("10s").DurationVar(&config.responseHeaderTimeout)
-	app.Flag("timeout.serverread", "The timeout of the reverse proxy to read requests").Default("5s").DurationVar(&config.serverReadTimeout)
-	app.Flag("timeout.serverwrite", "The timeout of the reverse proxy to write the response to the upstream client").Default("10s").DurationVar(&config.serverWriteTimeout)
 	app.Flag("tls.certfile", "The file path of the TLS cert file on disk, if you want to serve TLS").ExistingFileVar(&config.tlsCertFile)
 	app.Flag("tls.keyfile", "The file path of the TLS key file on disk, if you want to serve TLS").ExistingFileVar(&config.tlsKeyFile)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
@@ -69,8 +59,8 @@ func main() {
 
 	proxy := bouncer.NewBouncingReverseProxy(config.backendURL, bouncers, nil)
 	server := http.Server{
-		ReadTimeout:  config.serverReadTimeout,
-		WriteTimeout: config.serverWriteTimeout,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
 		Handler:      proxy,
 		Addr:         config.listenURL.String(),
 	}

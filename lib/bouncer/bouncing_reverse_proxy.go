@@ -3,7 +3,7 @@ package bouncer
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type deciderSerialized struct {
@@ -53,12 +53,12 @@ func ParseBouncers(bytes []byte) ([]Bouncer, error) {
 		deciders := make([]Decider, len(serializedBouncer.Deciders))
 		for deciderIndex, serializedDecider := range serializedBouncer.Deciders {
 			if _, exists := deciderTemplates[serializedDecider.Name]; !exists {
-				return nil, fmt.Errorf("No decider template named %s found", serializedDecider.Name)
+				return nil, fmt.Errorf("no decider template named %q found", serializedDecider.Name)
 			}
 
 			for _, expected := range deciderTemplates[serializedDecider.Name].requiredConfigVars {
 				if _, exists := serializedDecider.Config[expected]; !exists {
-					return nil, fmt.Errorf("Expected config variable %s not found for %s", expected, serializedDecider.Name)
+					return nil, fmt.Errorf("expected config variable %s not found for %s", expected, serializedDecider.Name)
 				}
 			}
 
@@ -102,7 +102,7 @@ type HTTPError struct {
 func (h *HTTPError) ToResponse() *http.Response {
 	return &http.Response{
 		StatusCode: h.Status,
-		Body:       ioutil.NopCloser(bytes.NewBufferString(h.Err.Error())),
+		Body:       io.NopCloser(bytes.NewBufferString(h.Err.Error())),
 	}
 }
 
@@ -133,17 +133,17 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 		rawBody = []byte{}
 	} else {
 		defer req.Body.Close()
-		rawBody, err = ioutil.ReadAll(req.Body)
+		rawBody, err = io.ReadAll(req.Body)
 		if err != nil {
 			return &HTTPError{
-				Status: 500,
-				Err:    fmt.Errorf("Failed to read body from request"),
+				Status: http.StatusBadRequest,
+				Err:    fmt.Errorf("failed to read body from request"),
 			}
 		}
 	}
 
 	for _, decider := range b.Deciders {
-		req.Body = ioutil.NopCloser(bytes.NewBuffer(rawBody))
+		req.Body = io.NopCloser(bytes.NewBuffer(rawBody))
 		defer req.Body.Close()
 		err := decider(req)
 		if err != nil {
@@ -156,7 +156,7 @@ func (b Bouncer) Bounce(req *http.Request) *HTTPError {
 		}
 	}
 
-	req.Body = ioutil.NopCloser(bytes.NewBuffer(rawBody))
+	req.Body = io.NopCloser(bytes.NewBuffer(rawBody))
 	return nil
 }
 
@@ -171,7 +171,7 @@ type bouncingTransport struct {
 func SetBouncers(bouncers []Bouncer, proxy *httputil.ReverseProxy) error {
 	transport, ok := proxy.Transport.(bouncingTransport)
 	if !ok {
-		return fmt.Errorf("Given proxy is not a BouncingReverseProxy")
+		return fmt.Errorf("given proxy is not a BouncingReverseProxy")
 	}
 
 	proxy.Transport = bouncingTransport{

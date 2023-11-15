@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"regexp"
@@ -51,19 +50,20 @@ type matcher struct {
 
 // alertmanagerSilenceSerialized represents a serialized silence from amtool in JSON
 // e.g.
-// {
-//   "comment": "test",
-//   "createdBy": "colin@quirl.co.nz",
-//   "endsAt": "2020-01-13T16:34:49.444Z",
-//   "matchers": [
-//     {
-//       "isRegex": false,
-//       "name": "cats",
-//       "value": "cats"
-//     }
-//   ],
-//   "startsAt": "2020-01-13T15:34:49.444Z"
-// }
+//
+//	{
+//	  "comment": "test",
+//	  "createdBy": "colin@quirl.co.nz",
+//	  "endsAt": "2020-01-13T16:34:49.444Z",
+//	  "matchers": [
+//	    {
+//	      "isRegex": false,
+//	      "name": "cats",
+//	      "value": "cats"
+//	    }
+//	  ],
+//	  "startsAt": "2020-01-13T15:34:49.444Z"
+//	}
 type alertmanagerSilenceSerialized struct {
 	Comment  string    `json:"comment"`
 	Author   string    `json:"createdBy"`
@@ -82,19 +82,19 @@ type AlertmanagerSilence struct {
 }
 
 func parseAlertmanagerSilence(body io.ReadCloser) (AlertmanagerSilence, error) {
-	bodyBytes, err := ioutil.ReadAll(body)
+	bodyBytes, err := io.ReadAll(body)
 	if err != nil {
-		return AlertmanagerSilence{}, fmt.Errorf("Failed to read body")
+		return AlertmanagerSilence{}, fmt.Errorf("failed to read body")
 	}
 	serialized := alertmanagerSilenceSerialized{}
 	json.Unmarshal(bodyBytes, &serialized)
 	startTime, err := time.Parse(time.RFC3339, serialized.StartsAt)
 	if err != nil {
-		return AlertmanagerSilence{}, fmt.Errorf("Start Time %s is not a valid RFC3339 time string", serialized.StartsAt)
+		return AlertmanagerSilence{}, fmt.Errorf("start Time %s is not a valid RFC3339 time string", serialized.StartsAt)
 	}
 	endTime, err := time.Parse(time.RFC3339, serialized.EndsAt)
 	if err != nil {
-		return AlertmanagerSilence{}, fmt.Errorf("End Time %s is not a valid RFC3339 time string", serialized.EndsAt)
+		return AlertmanagerSilence{}, fmt.Errorf("end Time %s is not a valid RFC3339 time string", serialized.EndsAt)
 	}
 
 	return AlertmanagerSilence{
@@ -122,7 +122,7 @@ func AllSilencesHaveAuthorDecider(config map[string]string) Decider {
 		if !strings.HasSuffix(silence.Author, domain) {
 			return &HTTPError{
 				Status: 400,
-				Err:    fmt.Errorf("Authors must be %s emails. Got %s", domain, silence.Author),
+				Err:    fmt.Errorf("authors must be %q emails. Got %q", domain, silence.Author),
 			}
 		}
 
@@ -146,7 +146,7 @@ func MirrorDecider(config map[string]string) Decider {
 		if err != nil {
 			return &HTTPError{
 				Status: 500,
-				Err:    fmt.Errorf("Failed to create request to %s: %s", url, err),
+				Err:    fmt.Errorf("failed to create request to %s: %s", url, err),
 			}
 		}
 
@@ -179,7 +179,7 @@ func SilencesDontExpireOnWeekendsDecider(config map[string]string) Decider {
 		if weekday == time.Saturday || weekday == time.Sunday {
 			return &HTTPError{
 				Status: 400,
-				Err:    fmt.Errorf("By policy, silences can't expire on weekends. Be nice to people oncall over the weekend! "),
+				Err:    fmt.Errorf("by policy, silences can't expire on weekends. Be nice to people oncall over the weekend! "),
 			}
 		}
 
@@ -225,7 +225,7 @@ func LongSilencesHaveTicketDecider(config map[string]string) Decider {
 		if tooLong && !hasTicket {
 			return &HTTPError{
 				Status: 400,
-				Err:    fmt.Errorf("Silences longer than %s must have tickets attached to them to track ongoing work", maxLengthWithoutTicket),
+				Err:    fmt.Errorf("silences longer than %s must have tickets attached to them to track ongoing work", maxLengthWithoutTicket),
 			}
 		}
 
